@@ -1,4 +1,4 @@
-![pyBearing](images/pyBearing.png)
+[![pyBearing](https://raw.githubusercontent.com/ladisk/pyBearing/main/images/pyBearing.png)](https://github.com/ladisk/pyBearing)
 
 # pyBearing
 
