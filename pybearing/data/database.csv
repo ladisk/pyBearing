@@ -1,0 +1,5 @@
+name,manufacturer,type,d,D,B,D_b,D_m,theta,N_b,f_rot,f_c,f_re_ax,f_o,f_re,f_i
+NMB_1560kk,NMB,Deep Groove Ball Bearing,6,15,5,2.770,10.514,0,7,1,0.3683,1.7661,2.5779,3.5322,4.4221
+NMB_608DSD81,NM,Deep Groove Ball Bearing,8,22,7,3.950,14.974,0,7,1,0.3681,1.7635,2.5767,3.5270,4.4233
+WTOO_608RS,WTOO,Deep Groove Ball Bearing,8,22,7,3.960,15.014,0,7,1,0.3681,1.7638,2.5769,3.5276,4.4231
+Allout_608ZZ,Allout,Deep Groove Ball Bearing,8,22,7,3.968,15.016,0,7,1,0.3679,1.7600,2.5751,3.5200,4.4249

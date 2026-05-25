@@ -1,0 +1,36 @@
+[build-system]
+requires = [
+    "hatchling",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "pybearing"
+version = "1.0.0"
+description = "Simple package to calculate bearing characteristic frequencies and perform envelope analysis."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = [
+    "bearing",
+    "characteristic frequencies",
+    "envelope analysis"
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0"
+]
+
+[[project.authors]]
+name = "Matej Anko, Janko Slavič"
+email = "janko.slavic@fs.uni-lj.si"
+
+[[project.maintainers]]
+name = "Matej Anko, Janko Slavič"
+email = "janko.slavic@fs.uni-lj.si"
