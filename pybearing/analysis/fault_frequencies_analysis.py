@@ -5,6 +5,10 @@ from ..core.fault_frequencies import FaultFrequencies
 from ..data.bearing_database import BearingDatabase
 
 
+# Sources for equations:
+# Randall, R.B.. (2004). State of the Art in Monitoring Rotating Machinery - Part 1. Sound & vibration. 38. 14-21+13.
+# J. Slavič, A Brković and M. Boltežar, Typical bearing-fault rating using force measurements: application to real data. Journal of Vibration and Control, December 2011 vol. 17 no. 14 2164-2174.. DOI: 10.1177/1077546311399949
+
 def eq_f_cage(bearing:Bearing, frequency_of_rotation:float = 1.0, inner_rotating:bool = True) -> float:
     """
     Calculate the cage frequency of a bearing.
