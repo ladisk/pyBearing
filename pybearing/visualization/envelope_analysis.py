@@ -5,6 +5,7 @@ from matplotlib.colors import Normalize
 from matplotlib.cm import ScalarMappable
 
 from ..core.fault_frequencies import FaultFrequencies
+from ..analysis.filter_search_results import FilterSearchResults
 
 
 def plot_envelope(x:np.ndarray, envelope:np.ndarray, fs:int):
@@ -45,44 +46,42 @@ def plot_envelope_spectrum(freq:np.ndarray, ampl:np.ndarray, f_of_rotation:float
     plt.grid()
     plt.legend()
 
-def plot_filter_search_for_envelope_extraction(filter_search_results:dict,
-                                               plot_harmonics_score:bool = True,
-                                               plot_kurtosis_score:bool = False
-                                               ):
-    should_contain_keys = ["harmonics_results", "kurtosis_results", "level", "f_low", "f_high", "kurtosis_score"] + [f"{fault_frequency}_harmonics_score" for fault_frequency in ['f_cage', 'f_rolling_element_about_axis', 'f_outer_ring', 'f_rolling_element', 'f_inner_ring']]
-
-    for key in should_contain_keys:
-        assert key in filter_search_results, f"Key '{key}' is missing from filter_search_results"
-
-    plot_keys = []
-    if plot_harmonics_score and filter_search_results["harmonics_results"] is True:
-        plot_keys += [f"{fault_frequency}_harmonics_score" for fault_frequency in ['f_cage', 'f_rolling_element_about_axis', 'f_outer_ring', 'f_rolling_element', 'f_inner_ring']]
-    elif plot_harmonics_score and filter_search_results["harmonics_results"] is False:
-        print("Warning: plot_harmonics_score is True but harmonics_results are missing.")
+def plot_filter_search_for_envelope_extraction(
+        filter_search_results:FilterSearchResults,
+        plot_harmonics_score:bool = True,
+        plot_kurtosis_score:bool = False
+    ):
+    names_for_plot = []
+    scores_for_plot = []
+    if plot_harmonics_score and filter_search_results.harmonics_score is not None:
+        fault_types = list(filter_search_results.harmonics_score.__annotations__.keys())
+        names_for_plot += fault_types
+        scores_for_plot.extend(filter_search_results.harmonics_score.__getattribute__(key) for key in fault_types)
+    elif plot_harmonics_score and filter_search_results.harmonics_score is None:
+        print("Warning: plot_harmonics_score is True but harmonics_score is missing.")
     
-    if plot_kurtosis_score and filter_search_results["kurtosis_results"] is True:
-        plot_keys.append("kurtosis_score")
-    elif plot_kurtosis_score and filter_search_results["kurtosis_results"] is False:
-        print("Warning: plot_kurtosis_score is True but kurtosis_results are missing.")
+    if plot_kurtosis_score and filter_search_results.kurtosis_score is not None:
+        names_for_plot.append("kurtosis")
+        scores_for_plot.append(filter_search_results.kurtosis_score)
+    elif plot_kurtosis_score and filter_search_results.kurtosis_score is None:
+        print("Warning: plot_kurtosis_score is True but kurtosis_score is missing.")
 
-    for key in plot_keys:
-        levels = sorted(set(filter_search_results["level"]))
+    for name, plot_score in zip(names_for_plot, scores_for_plot):
+        levels = sorted(set(filter_search_results.level))
 
         # map actual level -> row number
         level_to_row = {lvl: i for i, lvl in enumerate(levels)}
 
         fig, ax = plt.subplots(figsize=(12, 6))
 
-        values = filter_search_results[key]
-
-        norm = Normalize(vmin=min(values), vmax=max(values))
+        norm = Normalize(vmin=min(plot_score), vmax=max(plot_score))
         cmap = plt.cm.viridis
 
         for f_low, f_high, level, score in zip(
-            filter_search_results["f_low"],
-            filter_search_results["f_high"],
-            filter_search_results["level"],
-            filter_search_results[key]
+            filter_search_results.f_low,
+            filter_search_results.f_high,
+            filter_search_results.level,
+            plot_score
         ):
 
             row = level_to_row[level]
@@ -100,13 +99,13 @@ def plot_filter_search_for_envelope_extraction(filter_search_results:dict,
         ax.relim()
         ax.autoscale_view()
         ax.set_ylim(len(levels), 0)
-        ax.set_xlim(min(filter_search_results["f_low"]), max(filter_search_results["f_high"]))
+        ax.set_xlim(min(filter_search_results.f_low), max(filter_search_results.f_high))
         ax.set_yticks(np.arange(len(levels)) + 0.5)
         ax.set_yticklabels([f"{lvl:.1f}" for lvl in levels])
 
         ax.set_ylabel("Level")
         ax.set_xlabel("Frequency (Hz)")
-        ax.set_title(f"{str(key).replace('_', ' ').title()}")
+        ax.set_title(f"{str(name).replace('_', ' ').title()}")
 
         sm = ScalarMappable(norm=norm, cmap=cmap) 
         plt.colorbar(sm, ax=ax, label="Score")

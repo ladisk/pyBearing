@@ -2,6 +2,7 @@ import numpy as np
 from scipy.signal import hilbert
 from scipy.stats import kurtosis
 
+from .filter_search_results import PerFaultResults, FilterSearchResults
 from ..signal.features import rms_from_signal, rms_from_psd
 from ..signal.filtering import filter_signal
 from ..signal.spectral import power_spectral_density
@@ -118,20 +119,22 @@ def rms_around_fault_frequencies_of_envelope(x:np.ndarray,
     
     return results
 
-def filter_search_for_envelope_extraction(x:np.ndarray,
-                                          fs:int,
-                                          fault_frequencies:FaultFrequencies,
-                                          max_level:int,
-                                          compute_triadic:bool = False,
-                                          max_frequency:float = None,
-                                          min_frequency:float = None,
-                                          epsilon:float = 1e-3,
-                                          calculate_harmonics_score:bool = True,
-                                          n_harmonics:int = 1,
-                                          min_samples:int = 2,
-                                          absolute_error:float = 1.0,
-                                          relative_error:float = 0.0,
-                                          calculate_kurtosis_score:bool = False) -> dict:
+def filter_search_for_envelope_extraction(
+        x:np.ndarray,
+        fs:int,
+        fault_frequencies:FaultFrequencies,
+        max_level:int,
+        compute_triadic:bool = False,
+        max_frequency:float = None,
+        min_frequency:float = None,
+        epsilon:float = 1e-3,
+        calculate_harmonics_score:bool = True,
+        n_harmonics:int = 1,
+        min_samples:int = 2,
+        absolute_error:float = 1.0,
+        relative_error:float = 0.0,
+        calculate_kurtosis_score:bool = False
+    ) -> FilterSearchResults:
     """
     Perform a search over different frequency bands for envelope extraction and calculate scores based on:
     1) The energy around the harmonics of interest compared to the energy in the rest of the spectrum for 
@@ -174,14 +177,11 @@ def filter_search_for_envelope_extraction(x:np.ndarray,
 
     returns
     -------
-    dict
-        A dictionary containing the:
+    FilterSearchResults
+        An instance of the FilterSearchResults data class containing the:
         - "level", "f_low", and "f_high" for each evaluated frequency band.
-        - "harmonics_results" indicating whether the harmonics score was calculated for each band.
-        - "{fault_frequency}_harmonics_score" for each fault frequency and 
-           each evaluated frequency band (if calculate_harmonics_score is True).
-        - "kurtosis_results" indicating whether the kurtosis score was calculated for each band.
-        - "kurtosis_score" for each evaluated frequency band (if calculate_kurtosis_score is True).
+        - "harmonics_score" (HarmonicsResults, containing the score for each fault frequency for each evaluated frequency band) (if calculate_harmonics_score is True else None).
+        - "kurtosis_score" containing the kurtosis score for each evaluated frequency band (if calculate_kurtosis_score is True else None).
     """
     if max_frequency is None or max_frequency > fs/2:
         max_frequency = fs/2
@@ -192,8 +192,6 @@ def filter_search_for_envelope_extraction(x:np.ndarray,
     bands_container_harmonics = {}
 
     results = {
-        "harmonics_results": calculate_harmonics_score,
-        "kurtosis_results": calculate_kurtosis_score,
         "f_low": [],
         "f_high": [],
         "level": []
@@ -277,7 +275,23 @@ def filter_search_for_envelope_extraction(x:np.ndarray,
                     kurtosis_score = kurtosis(filtered_signal)
                     results["kurtosis_score"].extend([kurtosis_score])
 
-    return results
+    harmonics_results = PerFaultResults(
+        cage = np.array(results["f_cage_harmonics_score"]),
+        rolling_element_about_axis = np.array(results["f_rolling_element_about_axis_harmonics_score"]),
+        outer_ring = np.array(results["f_outer_ring_harmonics_score"]),
+        rolling_element = np.array(results["f_rolling_element_harmonics_score"]),
+        inner_ring = np.array(results["f_inner_ring_harmonics_score"]),
+    ) if calculate_harmonics_score else None
+
+    filter_search_results = FilterSearchResults(
+        level = np.array(results["level"]),
+        f_low = np.array(results["f_low"]),
+        f_high = np.array(results["f_high"]),
+        harmonics_score = harmonics_results,
+        kurtosis_score = np.array(results["kurtosis_score"]) if calculate_kurtosis_score else None,
+    )
+
+    return filter_search_results
 
 def _determine_bands_for_harmonics(freq, fault_frequency:float, n_harmonics:int=1, min_samples:int = 2, absolute_error:float = 1.0, relative_error:float = 0.0):
     """
