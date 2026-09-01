@@ -1,7 +1,10 @@
 import numpy as np
+import pandas as pd
 from scipy.signal import hilbert
-from scipy.stats import kurtosis
+from scipy.stats import kurtosis, zscore
+from sklearn.model_selection import LeaveOneGroupOut
 
+from .filter_search_results import PerFaultResults, FilterSearchResults
 from ..signal.features import rms_from_signal, rms_from_psd
 from ..signal.filtering import filter_signal
 from ..signal.spectral import power_spectral_density
@@ -118,20 +121,22 @@ def rms_around_fault_frequencies_of_envelope(x:np.ndarray,
     
     return results
 
-def filter_search_for_envelope_extraction(x:np.ndarray,
-                                          fs:int,
-                                          fault_frequencies:FaultFrequencies,
-                                          max_level:int,
-                                          compute_triadic:bool = False,
-                                          max_frequency:float = None,
-                                          min_frequency:float = None,
-                                          epsilon:float = 1e-3,
-                                          calculate_harmonics_score:bool = True,
-                                          n_harmonics:int = 1,
-                                          min_samples:int = 2,
-                                          absolute_error:float = 1.0,
-                                          relative_error:float = 0.0,
-                                          calculate_kurtosis_score:bool = False) -> dict:
+def filter_search_for_envelope_extraction(
+        x:np.ndarray,
+        fs:int,
+        fault_frequencies:FaultFrequencies,
+        max_level:int,
+        compute_triadic:bool = False,
+        max_frequency:float = None,
+        min_frequency:float = None,
+        epsilon:float = 1e-3,
+        calculate_harmonics_score:bool = True,
+        n_harmonics:int = 1,
+        min_samples:int = 2,
+        absolute_error:float = 1.0,
+        relative_error:float = 0.0,
+        calculate_kurtosis_score:bool = False
+    ) -> FilterSearchResults:
     """
     Perform a search over different frequency bands for envelope extraction and calculate scores based on:
     1) The energy around the harmonics of interest compared to the energy in the rest of the spectrum for 
@@ -174,14 +179,11 @@ def filter_search_for_envelope_extraction(x:np.ndarray,
 
     returns
     -------
-    dict
-        A dictionary containing the:
+    FilterSearchResults
+        An instance of the FilterSearchResults data class containing the:
         - "level", "f_low", and "f_high" for each evaluated frequency band.
-        - "harmonics_results" indicating whether the harmonics score was calculated for each band.
-        - "{fault_frequency}_harmonics_score" for each fault frequency and 
-           each evaluated frequency band (if calculate_harmonics_score is True).
-        - "kurtosis_results" indicating whether the kurtosis score was calculated for each band.
-        - "kurtosis_score" for each evaluated frequency band (if calculate_kurtosis_score is True).
+        - "harmonics_score" (HarmonicsResults, containing the score for each fault frequency for each evaluated frequency band) (if calculate_harmonics_score is True else None).
+        - "kurtosis_score" containing the kurtosis score for each evaluated frequency band (if calculate_kurtosis_score is True else None).
     """
     if max_frequency is None or max_frequency > fs/2:
         max_frequency = fs/2
@@ -192,8 +194,6 @@ def filter_search_for_envelope_extraction(x:np.ndarray,
     bands_container_harmonics = {}
 
     results = {
-        "harmonics_results": calculate_harmonics_score,
-        "kurtosis_results": calculate_kurtosis_score,
         "f_low": [],
         "f_high": [],
         "level": []
@@ -277,7 +277,23 @@ def filter_search_for_envelope_extraction(x:np.ndarray,
                     kurtosis_score = kurtosis(filtered_signal)
                     results["kurtosis_score"].extend([kurtosis_score])
 
-    return results
+    harmonics_results = PerFaultResults(
+        cage = np.array(results["f_cage_harmonics_score"]),
+        rolling_element_about_axis = np.array(results["f_rolling_element_about_axis_harmonics_score"]),
+        outer_ring = np.array(results["f_outer_ring_harmonics_score"]),
+        rolling_element = np.array(results["f_rolling_element_harmonics_score"]),
+        inner_ring = np.array(results["f_inner_ring_harmonics_score"]),
+    ) if calculate_harmonics_score else None
+
+    filter_search_results = FilterSearchResults(
+        level = np.array(results["level"]),
+        f_low = np.array(results["f_low"]),
+        f_high = np.array(results["f_high"]),
+        harmonics_score = harmonics_results,
+        kurtosis_score = np.array(results["kurtosis_score"]) if calculate_kurtosis_score else None,
+    )
+
+    return filter_search_results
 
 def _determine_bands_for_harmonics(freq, fault_frequency:float, n_harmonics:int=1, min_samples:int = 2, absolute_error:float = 1.0, relative_error:float = 0.0):
     """
@@ -363,3 +379,260 @@ def _calculate_score_from_harmonics(freq:np.ndarray, Pxx:np.ndarray, bands:list[
 
     score_harmonics = (rms_around_harmonics / rms_excluded_harmonics) * np.log(1 + rms_around_harmonics)
     return score_harmonics
+
+def best_filter_for_envelope_extraction(
+        x: list[FilterSearchResults],
+        signal_names: list,
+        evaluate_harmonics_score: bool = False,
+        objective_function = None,
+        evaluate_kurtosis_score: bool = False
+    ):
+    """
+    Determine the best filter for envelope extraction based on the results of multiple filter searches.
+    For each bearing-characteristic-fault one bandpass filter is selected that maximizes the objective function.
+    
+    List of FilterSearchResults should contain results of signals from different bearings, but under
+    the same operating conditions (e.g., same speed, load, etc.) and preferentially the same fault type,
+    as different faults may show different characteristics in the envelope spectrum.
+
+    parameters
+    ----------
+    x: list[FilterSearchResults] 
+        List of results obtained by the filter_search_for_envelope_extraction method.
+    signal_names: list
+        List of signal names. Index of each name should corespond to index of result in x.
+    evaluate_harmonics_score: bool, optional
+        Whether to evaluate the harmonics score for each fault characteristic frequency, by default False.
+    objective_function: callable, optional
+        Function used to aggregate ``mean`` and ``std`` into a single score. The callable must accept
+        ``mean`` and ``std`` as NumPy arrays or pandas Series and return the objective values. By
+        default, the objective is ``mean - 0.5 * std``. If using a log-based objective, clip or
+        shift the values to avoid invalid inputs such as ``log(negative)``.
+    evaluate_kurtosis_score: bool, optional
+        Whether to evaluate the kurtosis score for each fault characteristic frequency, by default False.
+
+    returns
+    -------
+    """
+    if objective_function is None:
+        def objective_function(mean, std):
+            return mean - 0.5 * std
+
+    elif not callable(objective_function):
+        raise TypeError("objective_function must be callable and accept mean and std arguments.")
+    # ------------------------------
+    # Temporary varaibles to store data
+    # ------------------------------
+    harmonics_score_dictionary = {
+        "signal": [],
+        "fault_characteristic_frequency": [],
+        "level": [],
+        "f_low": [],
+        "f_high": [],
+        "score": []
+    }
+    fault_characteristic_frequencies = None
+
+    # ------------------------------
+    # Loop across results and transform different scores for further processing
+    # ------------------------------
+    for i, result in enumerate(x):
+        for key in list(vars(result).keys()):
+            if key.endswith("score"):
+                score_attribute = getattr(result, key, None)
+
+                # Prepare data for harmonics score processing
+                if evaluate_harmonics_score and key == "harmonics_score" and score_attribute is not None:
+                    attributes = list(vars(score_attribute).keys())
+                    fault_characteristic_frequencies = attributes
+                    for attribute in attributes:
+                        score_value = getattr(score_attribute, attribute, None)
+                        z_score = zscore(score_value)
+                        number_of_computated_scores = len(z_score)
+
+                        harmonics_score_dictionary["signal"].extend([signal_names[i]] * number_of_computated_scores)
+                        harmonics_score_dictionary["fault_characteristic_frequency"].extend([attribute] * number_of_computated_scores)
+                        harmonics_score_dictionary["level"].extend(result.level)
+                        harmonics_score_dictionary["f_low"].extend(result.f_low)
+                        harmonics_score_dictionary["f_high"].extend(result.f_high)
+                        harmonics_score_dictionary["score"].extend(z_score)
+
+                # Prepare data for kurtosis score processing
+                if evaluate_kurtosis_score and key == "kurtosis_score" and score_attribute is not None:
+                    # TODO: Implement kurtosis score processing
+                    raise NotImplementedError("Kurtosis score processing is not implemented yet.")
+
+    # ------------------------------
+    # Process the collected scores to determine the best filter for envelope extraction
+    # ------------------------------
+    if evaluate_harmonics_score:
+        summary_harmonics_score, selection_results_harmonics_score = _determine_best_filter_for_envelope_extraction_using_harmonics_score(
+            harmonics_score_dictionary,
+            fault_characteristic_frequencies,
+            objective_function
+        )
+
+    if evaluate_kurtosis_score:
+        # TODO: Implement kurtosis score evaluation
+        raise NotImplementedError("Kurtosis score evaluation is not implemented yet.")
+
+    # ------------------------------
+    # Create a return dictionary to store the results of the best filter selection process
+    # Save the results of the function to xlsx file if desired
+    # ------------------------------
+    results = {}
+
+    if evaluate_harmonics_score:
+        results["summary_harmonics_score"] = summary_harmonics_score
+        results["selection_results_harmonics_score"] = selection_results_harmonics_score
+    if evaluate_kurtosis_score:
+        # TODO: Append kurtosis score results to return_list
+        raise NotImplementedError("Kurtosis score results are not implemented yet.")
+
+    return results
+
+def _determine_best_filter_for_envelope_extraction_using_harmonics_score(
+        harmonics_score_dictionary: dict,
+        fault_characteristic_frequencies: list,
+        objective_function: callable
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Determine the best filter for envelope extraction based on the harmonics score.
+
+    parameters
+    ----------
+    harmonics_score_dictionary : dict
+        Dictionary containing the harmonics scores to determine the best filter for envelope extraction.
+    fault_characteristic_frequencies : list
+        List of fault characteristic frequencies to evaluate.
+    objective_function : callable
+        Function used to aggregate ``mean`` and ``std`` into a single score. The callable must accept
+
+    returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        summary_harmonics_score : pd.DataFrame
+            Summary of the harmonics scores.
+        selection_results_harmonics_score : pd.DataFrame
+            Results of the cross-validation for filter selection process.
+    """
+    REQUIRED_KEYS_IN_harmonics_score_dictionary = ["signal", "fault_characteristic_frequency", "level", "f_low", "f_high", "score"]
+    for key in harmonics_score_dictionary.keys():
+        if key not in REQUIRED_KEYS_IN_harmonics_score_dictionary:
+            raise ValueError(f"Missing required key '{key}' in harmonics_score_dictionary. Required keys are: {REQUIRED_KEYS_IN_harmonics_score_dictionary}")
+    # ------------------------------
+    # Determining the best filter for envelope extraction based on the harmonics score
+    # ------------------------------
+    dataframe = pd.DataFrame(harmonics_score_dictionary)
+
+    logo = LeaveOneGroupOut() # Cross-validation strategy
+
+    best_band_results = []
+
+    for fault in fault_characteristic_frequencies: # Evaluate for each fault separately
+        sub_dataframe = dataframe[dataframe["fault_characteristic_frequency"] == fault]
+        for train_idx, test_idx in logo.split(
+                sub_dataframe,
+                groups=sub_dataframe["signal"]):
+
+            train_df = sub_dataframe.iloc[train_idx]
+            test_df = sub_dataframe.iloc[test_idx]
+
+            objective = (
+                train_df
+                .groupby(["level","f_low","f_high"])["score"]
+                .agg(["mean","std"])
+                .reset_index()
+            )
+
+            objective["std"] = objective["std"].fillna(0)
+
+            objective["objective"] = objective_function(
+                objective["mean"],
+                objective["std"]
+            )
+
+            best = (
+                objective
+                .sort_values("objective", ascending=False)
+                .iloc[0]
+            )
+
+            score = test_df[
+                (test_df.level == best.level)
+                &
+                (test_df.f_low == best.f_low)
+                &
+                (test_df.f_high == best.f_high)
+            ]["score"].iloc[0]
+
+            test_sorted = (
+                test_df
+                .sort_values("score", ascending=False)
+                .reset_index(drop=True)
+            )
+
+            rank = test_sorted[
+                (test_sorted.level == best.level)
+                &
+                (test_sorted.f_low == best.f_low)
+                &
+                (test_sorted.f_high == best.f_high)
+            ].index[0] + 1
+
+            best_band_results.append({
+                "signal": test_df["signal"].iloc[0],
+                "fault": fault,
+                "level": best.level,
+                "f_low": best.f_low,
+                "f_high": best.f_high,
+                "test_score": score,
+                "rank": rank
+            })
+    # Detailed results of selection -> each fault from every signal is cross-validated on band selected from all other signals
+    # rank is the position of the selected band in the sorted list of scores for the test signal -> eg. rank 2 means that best
+    # band for other signals is the second best for the test signal.
+    selection_results_harmonics_score = pd.DataFrame(best_band_results) 
+
+    # Create summary_harmonics_score of selection results based on harmonics score
+    summary_harmonics_score = (
+        selection_results_harmonics_score
+        .groupby(["fault", "level", "f_low", "f_high"])
+        .agg(
+            mean_test_score=("test_score", "mean"),
+            std_test_score=("test_score", "std"),
+            mean_rank=("rank", "mean"),
+            max_rank=("rank", "max"),
+            n=("test_score", "size")
+        )
+        .reset_index()
+    )
+
+    n_signals = selection_results_harmonics_score.groupby("fault")["signal"].nunique()
+
+    selection_frequency = (
+        selection_results_harmonics_score
+        .groupby(["fault","level","f_low","f_high"])
+        .size()
+        .rename("selection_count")
+        .reset_index()
+    )
+
+    selection_frequency["selection_frequency"] = (
+        selection_frequency.apply(
+            lambda r: r.selection_count / n_signals[r.fault],
+            axis=1
+        )
+    )
+
+    summary_harmonics_score = summary_harmonics_score.merge(
+        selection_frequency,
+        on=["fault","level","f_low","f_high"]
+    )
+
+    summary_harmonics_score = summary_harmonics_score.sort_values(
+        ["fault","selection_frequency","mean_test_score"],
+        ascending=[True, False, False]
+    )
+
+    return summary_harmonics_score, selection_results_harmonics_score

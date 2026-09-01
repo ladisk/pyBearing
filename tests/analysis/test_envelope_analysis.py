@@ -5,9 +5,10 @@ sys.path.insert(0, "../..")
 
 import pytest
 import numpy as np
+import pandas as pd
 
 from pybearing.analysis.envelope_analysis import *
-from pybearing.core.fault_frequencies import FaultFrequencies
+from pybearing.analysis.filter_search_results import FilterSearchResults
 from pybearing.data.bearing_database import BearingDatabase
 
 
@@ -54,3 +55,74 @@ class TestEnvelopeAnalysis:
         result_values =  np.array(list(result.values()))
 
         assert np.allclose(result_values, true_result, rtol=1e-6)
+
+    def test_best_filter_for_envelope_extraction_uses_default_objective_function(self):
+        result_1 = FilterSearchResults(
+            level=np.array([1, 2]),
+            f_low=np.array([10.0, 10.0]),
+            f_high=np.array([20.0, 25.0]),
+            harmonics_score=PerFaultResults(
+                cage=np.array([1.0, 3.0]),
+                rolling_element_about_axis=np.array([1.0, 3.0]),
+                outer_ring=np.array([1.0, 3.0]),
+                rolling_element=np.array([1.0, 3.0]),
+                inner_ring=np.array([1.0, 3.0]),
+            )
+        )
+        result_2 = FilterSearchResults(
+            level=np.array([1, 2]),
+            f_low=np.array([10.0, 10.0]),
+            f_high=np.array([20.0, 25.0]),
+            harmonics_score=PerFaultResults(
+                cage=np.array([2.0, 4.0]),
+                rolling_element_about_axis=np.array([2.0, 4.0]),
+                outer_ring=np.array([2.0, 4.0]),
+                rolling_element=np.array([2.0, 4.0]),
+                inner_ring=np.array([2.0, 4.0]),
+            )
+        )
+
+        results = best_filter_for_envelope_extraction(
+            [result_1, result_2],
+            ["signal_1", "signal_2"],
+            evaluate_harmonics_score=True
+        )
+
+        assert isinstance(results["summary_harmonics_score"], pd.DataFrame)
+        assert isinstance(results["selection_results_harmonics_score"], pd.DataFrame)
+
+    def test_best_filter_for_envelope_extraction_accepts_custom_objective_function(self):
+        result_1 = FilterSearchResults(
+            level=np.array([1, 2]),
+            f_low=np.array([10.0, 10.0]),
+            f_high=np.array([20.0, 25.0]),
+            harmonics_score=PerFaultResults(
+                cage=np.array([1.0, 3.0]),
+                rolling_element_about_axis=np.array([1.0, 3.0]),
+                outer_ring=np.array([1.0, 3.0]),
+                rolling_element=np.array([1.0, 3.0]),
+                inner_ring=np.array([1.0, 3.0]),
+            )
+        )
+        result_2 = FilterSearchResults(
+            level=np.array([1, 2]),
+            f_low=np.array([10.0, 10.0]),
+            f_high=np.array([20.0, 25.0]),
+            harmonics_score=PerFaultResults(
+                cage=np.array([2.0, 4.0]),
+                rolling_element_about_axis=np.array([2.0, 4.0]),
+                outer_ring=np.array([2.0, 4.0]),
+                rolling_element=np.array([2.0, 4.0]),
+                inner_ring=np.array([2.0, 4.0]),
+            )
+        )
+
+        results = best_filter_for_envelope_extraction(
+            [result_1, result_2],
+            ["signal_1", "signal_2"],
+            evaluate_harmonics_score=True,
+            objective_function=lambda mean, std: np.log(np.clip(mean, 1e-9, None)) + 0.5 * std,
+        )
+
+        assert isinstance(results["summary_harmonics_score"], pd.DataFrame)
+        assert isinstance(results["selection_results_harmonics_score"], pd.DataFrame)
