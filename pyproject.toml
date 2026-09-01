@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pybearing"
-version = "1.0.1"
+version = "1.0.2"
 description = "Simple package to calculate bearing characteristic frequencies and perform envelope analysis."
 readme = "README.md"
 requires-python = ">=3.10"
