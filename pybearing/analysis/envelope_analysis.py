@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 from scipy.signal import hilbert
 from scipy.stats import kurtosis, zscore
 from sklearn.model_selection import LeaveOneGroupOut
@@ -12,12 +13,14 @@ from ..core.fault_frequencies import FaultFrequencies
 from ..visualization.envelope_analysis import plot_envelope
 
 
-def envelope_extraction(x:np.ndarray,
-                        fs:int,
-                        cutoff,
-                        filter_type:str="bandpass",
-                        order:int=2,
-                        plot:bool=False) -> np.ndarray:
+def envelope_extraction(
+        x: np.ndarray,
+        fs: int,
+        cutoff,
+        filter_type: str = "bandpass",
+        order: int = 2,
+        plot: bool = False
+    ) -> np.ndarray | tuple[np.ndarray, go.Figure]:
     """
     Envelope extraction demodulates resonance vibrations to expose the underlying fault frequencies.
     It applies a bandpass filter to the input signal, computes the Hilbert transform to obtain the analytic signal,
@@ -48,17 +51,20 @@ def envelope_extraction(x:np.ndarray,
     envelope = np.abs(hilbert_transform)
 
     if plot:
-        plot_envelope(x, envelope, fs)
+        figure = plot_envelope(x, envelope, fs)
+        return envelope, figure
 
     return envelope
 
-def rms_around_fault_frequencies_of_envelope(x:np.ndarray,
-                                             fs:int,
-                                             fault_frequencies:FaultFrequencies,
-                                             min_margin:float = 0.05,
-                                             min_samples:int = 2,
-                                             min_width:float = 1.0,
-                                             rms_from:str = "psd") -> dict:
+def rms_around_fault_frequencies_of_envelope(
+        x: np.ndarray,
+        fs: int,
+        fault_frequencies: FaultFrequencies,
+        min_margin: float = 0.05,
+        min_samples: int = 2,
+        min_width: float = 1.0,
+        rms_from: str = "psd"
+    ) -> dict:
     """
     Calculates the RMS values of the envelope of a signal around the characteristic fault frequencies. 
     The function can calculate the RMS values either from the power spectral density (PSD) or directly 
@@ -122,20 +128,20 @@ def rms_around_fault_frequencies_of_envelope(x:np.ndarray,
     return results
 
 def filter_search_for_envelope_extraction(
-        x:np.ndarray,
-        fs:int,
-        fault_frequencies:FaultFrequencies,
-        max_level:int,
-        compute_triadic:bool = False,
-        max_frequency:float = None,
-        min_frequency:float = None,
-        epsilon:float = 1e-3,
-        calculate_harmonics_score:bool = True,
-        n_harmonics:int = 1,
-        min_samples:int = 2,
-        absolute_error:float = 1.0,
-        relative_error:float = 0.0,
-        calculate_kurtosis_score:bool = False
+        x: np.ndarray,
+        fs: int,
+        fault_frequencies: FaultFrequencies,
+        max_level: int,
+        compute_triadic: bool = False,
+        max_frequency: float = None,
+        min_frequency: float = None,
+        epsilon: float = 1e-3,
+        calculate_harmonics_score: bool = True,
+        n_harmonics: int = 1,
+        min_samples: int = 2,
+        absolute_error: float = 1.0,
+        relative_error: float = 0.0,
+        calculate_kurtosis_score: bool = False
     ) -> FilterSearchResults:
     """
     Perform a search over different frequency bands for envelope extraction and calculate scores based on:
@@ -295,7 +301,14 @@ def filter_search_for_envelope_extraction(
 
     return filter_search_results
 
-def _determine_bands_for_harmonics(freq, fault_frequency:float, n_harmonics:int=1, min_samples:int = 2, absolute_error:float = 1.0, relative_error:float = 0.0):
+def _determine_bands_for_harmonics(
+        freq, 
+        fault_frequency: float, 
+        n_harmonics: int = 1, 
+        min_samples: int = 2, 
+        absolute_error: float = 1.0, 
+        relative_error: float = 0.0
+    ) -> tuple[list[tuple], np.ndarray]:
     """
     Determine frequency bands around the harmonics of a given fault frequency, 
     ensuring that each band contains at least a minimum number of samples and 
@@ -349,7 +362,12 @@ def _determine_bands_for_harmonics(freq, fault_frequency:float, n_harmonics:int=
     
     return bands, mask_with_excluded_harmonics
 
-def _calculate_score_from_harmonics(freq:np.ndarray, Pxx:np.ndarray, bands:list[tuple], mask_with_excluded_harmonics:np.ndarray) -> float:
+def _calculate_score_from_harmonics(
+        freq: np.ndarray, 
+        Pxx: np.ndarray, 
+        bands: list[tuple], 
+        mask_with_excluded_harmonics: np.ndarray
+    ) -> float:
     """
     Calculate a score based on the energy around the harmonics of interest compared to the energy in the rest of the spectrum.
 
@@ -384,9 +402,9 @@ def best_filter_for_envelope_extraction(
         x: list[FilterSearchResults],
         signal_names: list,
         evaluate_harmonics_score: bool = False,
-        objective_function = None,
+        objective_function: callable = None,
         evaluate_kurtosis_score: bool = False
-    ):
+    ) -> dict:
     """
     Determine the best filter for envelope extraction based on the results of multiple filter searches.
     For each bearing-characteristic-fault one bandpass filter is selected that maximizes the objective function.
@@ -413,6 +431,8 @@ def best_filter_for_envelope_extraction(
 
     returns
     -------
+    results: dict
+        Dictionary containing the results of the best filter selection process.
     """
     if objective_function is None:
         def objective_function(mean, std):
