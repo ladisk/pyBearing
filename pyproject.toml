@@ -21,6 +21,7 @@ dependencies = [
     "scipy",
     "matplotlib",
     "scikit-learn",
+    "plotly",
 ]
 
 [project.optional-dependencies]
