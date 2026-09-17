@@ -304,13 +304,58 @@ def plot_envelope(x:np.ndarray, envelope:np.ndarray, fs:int) -> go.Figure:
 
     return figure
 
+def add_envelope_spectrum_trace(
+        figure: go.Figure,
+        freq: np.ndarray,
+        ampl: np.ndarray,
+        f_of_rotation: float,
+        name: str,
+    ) -> go.Figure:
+    """
+    Add a normalized envelope-spectrum trace to a Plotly figure.
+
+    parameters
+    ----------
+    figure : go.Figure
+        Figure to which the trace is added.
+    freq : np.ndarray
+        Frequency values of the spectrum in Hz.
+    ampl : np.ndarray
+        Spectrum amplitudes.
+    f_of_rotation : float
+        Rotation frequency used to normalize the frequency axis.
+    name : str
+        Trace name shown in the figure legend.
+
+    returns
+    -------
+    go.Figure
+        The input figure with the added spectrum trace.
+    """
+    if figure.layout.meta is None or figure.layout.meta.get("normalise") is not True:
+        raise ValueError(
+            "add_envelope_spectrum_trace requires a normalised figure."
+        )
+
+    figure.add_trace(
+        go.Scatter(
+            x=freq / f_of_rotation,
+            y=np.abs(ampl),
+            mode="lines",
+            name=name,
+        )
+    )
+    return figure
+
 def plot_envelope_spectrum(
         freq: np.ndarray, 
         ampl: np.ndarray, 
         f_of_rotation: float, 
         fault_frequencies: FaultFrequencies, 
         plot_fault_frequencies: bool = True,
-        normalise: bool = False
+        normalise: bool = False,
+        name: str = "bearing",
+        title: str = "Envelope spectrum"
     ) -> go.Figure:
     """
     Plot an envelope spectrum with bearing fault-frequency markers.
@@ -329,6 +374,10 @@ def plot_envelope_spectrum(
         Whether to add fault-frequency lines and controls, by default ``True``.
     normalise : bool, optional
         Whether to express frequency relative to the rotation frequency, by default ``False``.
+    name : str, optional
+        Trace name shown in the figure legend, by default ``"bearing"``.
+    title : str, optional
+        Figure title, by default ``"Envelope spectrum"``.
 
     returns
     -------
@@ -345,15 +394,25 @@ def plot_envelope_spectrum(
     upper_x_limit = 1.1 * np.max(vlines_x_value)
 
     figure = go.Figure()
-    figure.add_trace(
-        go.Scatter(
-            x = freq if not normalise else freq / f_of_rotation,
-            y = np.abs(ampl),
-            mode = 'lines',
-            name = 'Envelope spectrum'
+    figure.update_layout(meta={"normalise": normalise})
+    if normalise:
+        add_envelope_spectrum_trace(
+            figure,
+            freq,
+            ampl,
+            f_of_rotation,
+            name=name,
         )
-    )
-    figure.update_layout(title="Envelope spectrum")
+    else:
+        figure.add_trace(
+            go.Scatter(
+                x=freq,
+                y=np.abs(ampl),
+                mode="lines",
+                name=name,
+            )
+        )
+    figure.update_layout(title=title)
     if plot_fault_frequencies:
         plot_values = vlines_x_value if not normalise else vlines_x_value / f_of_rotation
         add_vlines_with_visibility_buttons(

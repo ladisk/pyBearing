@@ -9,6 +9,7 @@ import pytest
 
 from pybearing.core.fault_frequencies import FaultFrequencies
 from pybearing.visualization.envelope_analysis import (
+    add_envelope_spectrum_trace,
     plot_bands,
     plot_envelope,
     plot_envelope_spectrum,
@@ -35,6 +36,41 @@ def button_labels(figure):
 
 
 class TestEnvelopeVisualization:
+    def test_add_envelope_spectrum_trace_normalises_frequency_and_uses_name(self):
+        figure = go.Figure()
+        figure.update_layout(meta={"normalise": True})
+        frequency = np.array([2.0, 4.0])
+        amplitude = np.array([-1.0, 3.0])
+
+        result = add_envelope_spectrum_trace(
+            figure,
+            frequency,
+            amplitude,
+            f_of_rotation=2.0,
+            name="Second spectrum",
+        )
+
+        assert result is figure
+        assert result.data[0].name == "Second spectrum"
+        assert np.allclose(result.data[0].x, [1.0, 2.0])
+        assert np.allclose(result.data[0].y, [1.0, 3.0])
+
+    def test_add_envelope_spectrum_trace_rejects_non_normalised_figure(self):
+        figure = go.Figure()
+        figure.update_layout(meta={"normalise": False})
+
+        with pytest.raises(
+            ValueError,
+            match="add_envelope_spectrum_trace requires a normalised figure.",
+        ):
+            add_envelope_spectrum_trace(
+                figure,
+                np.array([1.0]),
+                np.array([1.0]),
+                f_of_rotation=2.0,
+                name="Spectrum",
+            )
+
     def test_plot_envelope_creates_signal_and_envelope_traces(self):
         signal = np.array([1.0, 2.0, 3.0])
         envelope = np.array([1.5, 2.5, 3.5])
@@ -58,6 +94,7 @@ class TestEnvelopeVisualization:
             normalise=True,
         )
 
+        assert figure.layout.meta == {"normalise": True}
         assert np.allclose(figure.data[0].x, frequency / 2.0)
         assert np.allclose(
             [shape.x0 for shape in figure.layout.shapes],

@@ -208,3 +208,6 @@ __marimo__/
 
 # Skip dev folder
 dev/*
+
+# Skip .idea
+.idea/
