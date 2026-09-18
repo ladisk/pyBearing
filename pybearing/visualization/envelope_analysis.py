@@ -310,6 +310,7 @@ def add_envelope_spectrum_trace(
         ampl: np.ndarray,
         f_of_rotation: float,
         name: str,
+        plot_on_secondary_yaxis: bool = False
     ) -> go.Figure:
     """
     Add a normalized envelope-spectrum trace to a Plotly figure.
@@ -326,6 +327,9 @@ def add_envelope_spectrum_trace(
         Rotation frequency used to normalize the frequency axis.
     name : str
         Trace name shown in the figure legend.
+    plot_on_secondary_yaxis : bool, optional
+        Whether to plot the trace against a secondary y-axis on the right,
+        by default ``False``.
 
     returns
     -------
@@ -337,14 +341,24 @@ def add_envelope_spectrum_trace(
             "add_envelope_spectrum_trace requires a normalised figure."
         )
 
-    figure.add_trace(
-        go.Scatter(
-            x=freq / f_of_rotation,
-            y=np.abs(ampl),
-            mode="lines",
-            name=name,
+    trace_kwargs = {
+        "x": freq / f_of_rotation,
+        "y": np.abs(ampl),
+        "mode": "lines",
+        "name": name,
+    }
+    if plot_on_secondary_yaxis:
+        trace_kwargs["yaxis"] = "y2"
+        trace_kwargs["name"] = f"{name} (right y-axis)"
+        figure.update_layout(
+            yaxis2={
+                "overlaying": "y",
+                "side": "right",
+                "title": "Amplitude",
+            },
         )
-    )
+
+    figure.add_trace(go.Scatter(**trace_kwargs))
     return figure
 
 def plot_envelope_spectrum(
@@ -429,7 +443,6 @@ def plot_envelope_spectrum(
         yaxis_title = "Amplitude",
     )
     figure.update_xaxes(range=[0, upper_x_limit if not normalise else upper_x_limit / f_of_rotation])
-    figure.update_yaxes(range=[0, np.max(np.abs(ampl))])
 
     return figure
 

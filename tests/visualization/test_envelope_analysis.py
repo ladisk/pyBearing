@@ -71,6 +71,24 @@ class TestEnvelopeVisualization:
                 name="Spectrum",
             )
 
+    def test_add_envelope_spectrum_trace_can_use_secondary_yaxis(self):
+        figure = go.Figure()
+        figure.update_layout(meta={"normalise": True})
+
+        add_envelope_spectrum_trace(
+            figure,
+            np.array([1.0, 2.0]),
+            np.array([10.0, 20.0]),
+            f_of_rotation=1.0,
+            name="Large spectrum",
+            plot_on_secondary_yaxis=True,
+        )
+
+        assert figure.data[0].name == "Large spectrum (right y-axis)"
+        assert figure.data[0].yaxis == "y2"
+        assert figure.layout.yaxis2.overlaying == "y"
+        assert figure.layout.yaxis2.side == "right"
+
     def test_plot_envelope_creates_signal_and_envelope_traces(self):
         signal = np.array([1.0, 2.0, 3.0])
         envelope = np.array([1.5, 2.5, 3.5])
